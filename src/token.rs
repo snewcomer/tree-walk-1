@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Lexeme {
     // Single-character tokens.
     LeftParen,
@@ -49,7 +49,7 @@ pub enum Lexeme {
     Eof,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Token {
     lexeme: Lexeme,
     line: u64,

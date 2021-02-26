@@ -6,7 +6,7 @@ use peekmore::PeekMore;
 
 use crate::token::{Lexeme, Token};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ScanErrorType {
     UnexpectedCharacter(char),
     UnterminatedString,
@@ -21,7 +21,7 @@ impl fmt::Display for ScanErrorType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ScanError {
     line: u64,
     error: ScanErrorType,
@@ -183,8 +183,14 @@ impl<'a> Scanner<'a> {
     where
         P: FnMut(char) -> bool,
     {
-        let mut chars: Vec<char> = self.chars.by_ref().take_while(|c| predicate(*c)).collect();
-        buffer.append(&mut chars);
+        loop {
+            match self.chars.peek() {
+                Some(c) if predicate(*c) => {
+                    buffer.push(self.chars.next().unwrap());
+                }
+                _ => break,
+            };
+        }
     }
 }
 
@@ -247,5 +253,141 @@ impl<'a> Iterator for Scanner<'a> {
         };
 
         Some(token)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_handles_comments() {
+        let source = "{} // foo".to_owned();
+        let mut sc = Scanner::new(&source);
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::LeftBrace, 0))));
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::RightBrace, 0))));
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Eof, 0))));
+        assert_eq!(sc.next(), None);
+    }
+
+    #[test]
+    fn it_handles_comments_end() {
+        let source = "{} //".to_owned();
+        let mut sc = Scanner::new(&source);
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::LeftBrace, 0))));
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::RightBrace, 0))));
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Eof, 0))));
+        assert_eq!(sc.next(), None);
+    }
+
+    #[test]
+    fn it_handles_strings() {
+        let source = "\"bar\"".to_owned();
+        let mut sc = Scanner::new(&source);
+        assert_eq!(
+            sc.next(),
+            Some(Ok(Token::new(Lexeme::String("bar".to_string()), 0)))
+        );
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Eof, 0))));
+        assert_eq!(sc.next(), None);
+    }
+
+    #[test]
+    fn it_handles_combo_strings() {
+        let source = "\"foo\" == \"bar\" ".to_owned();
+        let mut sc = Scanner::new(&source);
+        assert_eq!(
+            sc.next(),
+            Some(Ok(Token::new(Lexeme::String("foo".to_string()), 0)))
+        );
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::EqualEqual, 0))));
+        assert_eq!(
+            sc.next(),
+            Some(Ok(Token::new(Lexeme::String("bar".to_string()), 0)))
+        );
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Eof, 0))));
+        assert_eq!(sc.next(), None);
+    }
+
+    #[test]
+    fn it_handles_numbers() {
+        let source = "1.2".to_owned();
+        let mut sc = Scanner::new(&source);
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Number(1.2), 0))));
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Eof, 0))));
+        assert_eq!(sc.next(), None);
+    }
+
+    #[test]
+    fn it_handles_addition() {
+        let source = "1+2.0".to_owned();
+        let mut sc = Scanner::new(&source);
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Number(1.0), 0))));
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Plus, 0))));
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Number(2.0), 0))));
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Eof, 0))));
+        assert_eq!(sc.next(), None);
+    }
+
+    #[test]
+    fn it_handles_reserved_words() {
+        let source = "and".to_owned();
+        let mut sc = Scanner::new(&source);
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::And, 0))));
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Eof, 0))));
+        assert_eq!(sc.next(), None);
+
+        let source = "while".to_owned();
+        let mut sc = Scanner::new(&source);
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::While, 0))));
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Eof, 0))));
+        assert_eq!(sc.next(), None);
+    }
+
+    #[test]
+    fn it_handles_idents_partial_reserved() {
+        let source = "andd".to_owned();
+        let mut sc = Scanner::new(&source);
+        assert_eq!(
+            sc.next(),
+            Some(Ok(Token::new(Lexeme::Identifier("andd".to_string()), 0)))
+        );
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Eof, 0))));
+        assert_eq!(sc.next(), None);
+    }
+
+    #[test]
+    fn it_handles_newlines() {
+        let source = "
+and while
+
+andd
+"
+        .to_owned();
+        let mut sc = Scanner::new(&source);
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::And, 1))));
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::While, 1))));
+        assert_eq!(
+            sc.next(),
+            Some(Ok(Token::new(Lexeme::Identifier("andd".to_string()), 3)))
+        );
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Eof, 4))));
+        assert_eq!(sc.next(), None);
+    }
+
+    #[test]
+    fn it_handles_unexpected_character() {
+        let source = "/·".to_owned();
+        let mut sc = Scanner::new(&source);
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Slash, 0))));
+        assert_eq!(
+            sc.next(),
+            Some(Err(ScanError::new(
+                ScanErrorType::UnexpectedCharacter('·'),
+                0
+            )))
+        );
+        assert_eq!(sc.next(), Some(Ok(Token::new(Lexeme::Eof, 0))));
+        assert_eq!(sc.next(), None);
     }
 }
