@@ -2,7 +2,7 @@ use crate::expression::Expression;
 use crate::token::Token;
 use crate::visitor::Visitor;
 
-struct AstPrinter;
+pub struct AstPrinter;
 
 impl AstPrinter {
     pub fn parenthesize(&mut self, name: String, expressions: &[&Expression]) -> String {
