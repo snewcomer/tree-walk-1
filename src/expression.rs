@@ -1,5 +1,36 @@
+use std::fmt;
+
 use crate::token::Token;
 use crate::visitor::Visitor;
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Value {
+    String(String),
+    Number(f64),
+    Bool(bool),
+    Nil,
+}
+
+impl Value {
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            &Self::Nil => false,
+            &Self::Bool(b) => b,
+            _ => true,
+        }
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Self::Nil => write!(f, "nil"),
+            &Self::Bool(b) => write!(f, "{}", b),
+            &Self::Number(n) => write!(f, "{}", n),
+            &Self::String(ref s) => write!(f, "\"{}\"", s),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
@@ -9,7 +40,7 @@ pub enum Expression {
         right: Box<Expression>,
     },
     Grouping(Box<Expression>),
-    Literal(Token),
+    Literal(Value),
     Unary {
         operator: Token,
         expression: Box<Expression>,
