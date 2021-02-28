@@ -19,16 +19,20 @@ impl Value {
             _ => true,
         }
     }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            &Self::Nil => "nil".to_owned(),
+            &Self::Bool(b) => b.to_string(),
+            &Self::Number(n) => n.to_string(),
+            &Self::String(ref s) => format!("\"{}\"", s),
+        }
+    }
 }
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Self::Nil => write!(f, "nil"),
-            &Self::Bool(b) => write!(f, "{}", b),
-            &Self::Number(n) => write!(f, "{}", n),
-            &Self::String(ref s) => write!(f, "\"{}\"", s),
-        }
+        write!(f, "{}", self.to_string())
     }
 }
 

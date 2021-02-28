@@ -27,12 +27,7 @@ impl Visitor<String> for AstPrinter {
     }
 
     fn visit_literal(&mut self, value: &Value) -> String {
-        match value {
-            &Value::Bool(b) => b.to_string(),
-            &Value::Number(n) => n.to_string(),
-            &Value::String(ref s) => s.clone(),
-            &Value::Nil => "nil".to_owned(),
-        }
+        value.to_string()
     }
 
     fn visit_unary(&mut self, operator: &Token, expression: &Expression) -> String {

@@ -124,7 +124,7 @@ fn check_number_operand(operator: &Token, operand: Value) -> Result<f64, Runtime
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::expression::{self, Expression, Value};
+    use crate::expression::{Expression, Value};
     use crate::token::{Lexeme, Token};
 
     #[test]
