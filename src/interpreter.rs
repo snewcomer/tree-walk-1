@@ -1,9 +1,9 @@
 use std::error;
 use std::fmt;
 
-use crate::expression::{Expression, Value};
+use crate::expression::{Expression, ExpressionVisitor, Value};
+use crate::statement::{Statement, StatementVisitor};
 use crate::token::{Lexeme, Token};
-use crate::visitor::Visitor;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeError {
@@ -33,12 +33,16 @@ type InterpreterResult = Result<Value, RuntimeError>;
 pub struct Interpreter;
 
 impl Interpreter {
+    pub fn execute(&mut self, statement: &Statement) -> InterpreterResult {
+        statement.accept(self)
+    }
+
     fn evaluate(&mut self, expression: &Expression) -> InterpreterResult {
         expression.accept(self)
     }
 }
 
-impl Visitor<InterpreterResult> for Interpreter {
+impl ExpressionVisitor<InterpreterResult> for Interpreter {
     fn visit_binary(
         &mut self,
         left: &Expression,
@@ -108,6 +112,22 @@ impl Visitor<InterpreterResult> for Interpreter {
                 "Invalid unary operator.".to_owned(),
             )),
         }
+    }
+}
+
+impl StatementVisitor<InterpreterResult> for Interpreter {
+    fn visit_expression(&mut self, expression: &Expression) -> InterpreterResult {
+        self.evaluate(expression)?;
+
+        return Ok(Value::Nil);
+    }
+
+    fn visit_print(&mut self, expression: &Expression) -> InterpreterResult {
+        let value = self.evaluate(expression)?;
+
+        println!("{}", value);
+
+        return Ok(Value::Nil);
     }
 }
 

@@ -1,6 +1,6 @@
-use crate::expression::{Expression, Value};
+use crate::expression::{Expression, ExpressionVisitor, Value};
+use crate::statement::StatementVisitor;
 use crate::token::Token;
-use crate::visitor::Visitor;
 
 pub struct AstPrinter;
 
@@ -17,7 +17,7 @@ impl AstPrinter {
     }
 }
 
-impl Visitor<String> for AstPrinter {
+impl ExpressionVisitor<String> for AstPrinter {
     fn visit_binary(&mut self, left: &Expression, operator: &Token, right: &Expression) -> String {
         self.parenthesize(operator.to_string(), &[left, right])
     }
@@ -32,6 +32,16 @@ impl Visitor<String> for AstPrinter {
 
     fn visit_unary(&mut self, operator: &Token, expression: &Expression) -> String {
         self.parenthesize(operator.to_string(), &[expression])
+    }
+}
+
+impl StatementVisitor<String> for AstPrinter {
+    fn visit_expression(&mut self, expression: &Expression) -> String {
+        self.parenthesize(";".to_owned(), &[expression])
+    }
+
+    fn visit_print(&mut self, expression: &Expression) -> String {
+        self.parenthesize("print".to_owned(), &[expression])
     }
 }
 

@@ -4,6 +4,7 @@ use std::fmt;
 use std::iter;
 
 use crate::expression::{Expression, Value};
+use crate::statement::Statement;
 use crate::token::{Lexeme, Token};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -37,7 +38,8 @@ impl fmt::Display for ParseError {
 
 impl error::Error for ParseError {}
 
-type ParseResult = Result<Expression, ParseError>;
+type StatementParseResult = Result<Statement, ParseError>;
+type ExpressionParseResult = Result<Expression, ParseError>;
 
 pub struct Parser<'a> {
     tokens: iter::Peekable<slice::Iter<'a, Token>>,
@@ -50,11 +52,40 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expression(&mut self) -> ParseResult {
+    fn statement(&mut self) -> StatementParseResult {
+        if matches!(self.peek_lexeme(), Some(&Lexeme::Print)) {
+            self.advance();
+            self.print_statement()
+        } else {
+            self.expression_statement()
+        }
+    }
+
+    fn print_statement(&mut self) -> StatementParseResult {
+        let expression = self.expression()?;
+        self.consume(
+            |l| l == &Lexeme::Semicolon,
+            "Expected ';' after value.".to_owned(),
+        )?;
+
+        Ok(Statement::Print(Box::new(expression)))
+    }
+
+    fn expression_statement(&mut self) -> StatementParseResult {
+        let expression = self.expression()?;
+        self.consume(
+            |l| l == &Lexeme::Semicolon,
+            "Expected ';' after value.".to_owned(),
+        )?;
+
+        Ok(Statement::Expression(Box::new(expression)))
+    }
+
+    fn expression(&mut self) -> ExpressionParseResult {
         self.equality()
     }
 
-    fn equality(&mut self) -> ParseResult {
+    fn equality(&mut self) -> ExpressionParseResult {
         let mut expr = self.comparision()?;
 
         while matches!(
@@ -74,7 +105,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn comparision(&mut self) -> ParseResult {
+    fn comparision(&mut self) -> ExpressionParseResult {
         let mut expr = self.term()?;
 
         while matches!(
@@ -97,7 +128,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn term(&mut self) -> ParseResult {
+    fn term(&mut self) -> ExpressionParseResult {
         let mut expr = self.factor()?;
 
         while matches!(
@@ -117,7 +148,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn factor(&mut self) -> ParseResult {
+    fn factor(&mut self) -> ExpressionParseResult {
         let mut expr = self.unary()?;
 
         while matches!(
@@ -137,7 +168,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn unary(&mut self) -> ParseResult {
+    fn unary(&mut self) -> ExpressionParseResult {
         if matches!(
             self.peek_lexeme(),
             Some(&Lexeme::Bang) | Some(&Lexeme::Minus)
@@ -154,7 +185,7 @@ impl<'a> Parser<'a> {
         self.primary()
     }
 
-    fn primary(&mut self) -> ParseResult {
+    fn primary(&mut self) -> ExpressionParseResult {
         match self.advance() {
             Some(Token {
                 lexeme: Lexeme::False,
@@ -225,12 +256,12 @@ impl<'a> Parser<'a> {
 }
 
 impl<'a> Iterator for Parser<'a> {
-    type Item = ParseResult;
+    type Item = StatementParseResult;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.peek_lexeme() {
             Some(&Lexeme::Eof) => None,
-            _ => Some(self.expression()),
+            _ => Some(self.statement()),
         }
     }
 }
@@ -245,15 +276,16 @@ mod tests {
     fn it_handles_string_literal_expressions() {
         let tokens = vec![
             Token::new(Lexeme::String("string literal".to_owned()), 0),
+            Token::new(Lexeme::Semicolon, 0),
             Token::new(Lexeme::Eof, 0),
         ];
         let mut parser = Parser::new(&tokens);
 
         assert_eq!(
             parser.next(),
-            Some(Ok(Expression::Literal(Value::String(
-                "string literal".to_owned()
-            ))))
+            Some(Ok(Statement::Expression(Box::new(Expression::Literal(
+                Value::String("string literal".to_owned())
+            )))))
         );
         assert_eq!(parser.next(), None);
     }
@@ -262,47 +294,71 @@ mod tests {
     fn it_handles_number_literal_expressions() {
         let tokens = vec![
             Token::new(Lexeme::Number(12.0), 0),
+            Token::new(Lexeme::Semicolon, 0),
             Token::new(Lexeme::Eof, 0),
         ];
         let mut parser = Parser::new(&tokens);
 
         assert_eq!(
             parser.next(),
-            Some(Ok(Expression::Literal(Value::Number(12.0))))
+            Some(Ok(Statement::Expression(Box::new(Expression::Literal(
+                Value::Number(12.0)
+            )))))
         );
         assert_eq!(parser.next(), None);
     }
 
     #[test]
     fn it_handles_true_boolean_literal_expressions() {
-        let tokens = vec![Token::new(Lexeme::True, 0), Token::new(Lexeme::Eof, 0)];
+        let tokens = vec![
+            Token::new(Lexeme::True, 0),
+            Token::new(Lexeme::Semicolon, 0),
+            Token::new(Lexeme::Eof, 0),
+        ];
         let mut parser = Parser::new(&tokens);
 
         assert_eq!(
             parser.next(),
-            Some(Ok(Expression::Literal(Value::Bool(true))))
+            Some(Ok(Statement::Expression(Box::new(Expression::Literal(
+                Value::Bool(true)
+            )))))
         );
         assert_eq!(parser.next(), None);
     }
 
     #[test]
     fn it_handles_false_boolean_literal_expressions() {
-        let tokens = vec![Token::new(Lexeme::False, 0), Token::new(Lexeme::Eof, 0)];
+        let tokens = vec![
+            Token::new(Lexeme::False, 0),
+            Token::new(Lexeme::Semicolon, 0),
+            Token::new(Lexeme::Eof, 0),
+        ];
         let mut parser = Parser::new(&tokens);
 
         assert_eq!(
             parser.next(),
-            Some(Ok(Expression::Literal(Value::Bool(false))))
+            Some(Ok(Statement::Expression(Box::new(Expression::Literal(
+                Value::Bool(false)
+            )))))
         );
         assert_eq!(parser.next(), None);
     }
 
     #[test]
     fn it_handles_nil_literal_expressions() {
-        let tokens = vec![Token::new(Lexeme::Nil, 0), Token::new(Lexeme::Eof, 0)];
+        let tokens = vec![
+            Token::new(Lexeme::Nil, 0),
+            Token::new(Lexeme::Semicolon, 0),
+            Token::new(Lexeme::Eof, 0),
+        ];
         let mut parser = Parser::new(&tokens);
 
-        assert_eq!(parser.next(), Some(Ok(Expression::Literal(Value::Nil))));
+        assert_eq!(
+            parser.next(),
+            Some(Ok(Statement::Expression(Box::new(Expression::Literal(
+                Value::Nil
+            )))))
+        );
         assert_eq!(parser.next(), None);
     }
 
@@ -311,16 +367,17 @@ mod tests {
         let tokens = vec![
             Token::new(Lexeme::Minus, 0),
             Token::new(Lexeme::Number(12.0), 0),
+            Token::new(Lexeme::Semicolon, 0),
             Token::new(Lexeme::Eof, 0),
         ];
         let mut parser = Parser::new(&tokens);
 
         assert_eq!(
             parser.next(),
-            Some(Ok(Expression::Unary {
+            Some(Ok(Statement::Expression(Box::new(Expression::Unary {
                 operator: Token::new(Lexeme::Minus, 0),
                 expression: Box::new(Expression::Literal(Value::Number(12.0)))
-            }))
+            }))))
         );
         assert_eq!(parser.next(), None);
     }
@@ -331,17 +388,18 @@ mod tests {
             Token::new(Lexeme::Number(2.0), 0),
             Token::new(Lexeme::Minus, 0),
             Token::new(Lexeme::Number(12.0), 0),
+            Token::new(Lexeme::Semicolon, 0),
             Token::new(Lexeme::Eof, 0),
         ];
         let mut parser = Parser::new(&tokens);
 
         assert_eq!(
             parser.next(),
-            Some(Ok(Expression::Binary {
+            Some(Ok(Statement::Expression(Box::new(Expression::Binary {
                 left: Box::new(Expression::Literal(Value::Number(2.0))),
                 operator: Token::new(Lexeme::Minus, 0),
                 right: Box::new(Expression::Literal(Value::Number(12.0)))
-            }))
+            }))))
         );
         assert_eq!(parser.next(), None);
     }
@@ -352,14 +410,15 @@ mod tests {
             Token::new(Lexeme::LeftParen, 0),
             Token::new(Lexeme::Number(2.0), 0),
             Token::new(Lexeme::RightParen, 0),
+            Token::new(Lexeme::Semicolon, 0),
             Token::new(Lexeme::Eof, 0),
         ];
         let mut parser = Parser::new(&tokens);
 
         assert_eq!(
             parser.next(),
-            Some(Ok(Expression::Grouping(Box::new(Expression::Literal(
-                Value::Number(2.0)
+            Some(Ok(Statement::Expression(Box::new(Expression::Grouping(
+                Box::new(Expression::Literal(Value::Number(2.0)))
             )))))
         );
         assert_eq!(parser.next(), None);

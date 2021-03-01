@@ -3,8 +3,8 @@ mod expression;
 mod interpreter;
 mod parser;
 mod scanner;
+mod statement;
 mod token;
-mod visitor;
 
 use std::env;
 use std::fmt;
@@ -40,13 +40,8 @@ fn run_prompt() -> Result<()> {
             break;
         }
 
-        match run(line) {
-            Ok(v) => {
-                println!("{}", v);
-            }
-            Err(e) => {
-                eprintln!("{}", e);
-            }
+        if let Err(e) = run(line) {
+            eprintln!("{}", e);
         }
     }
 
@@ -64,17 +59,15 @@ fn run_file<P: AsRef<path::Path> + fmt::Display>(filename: P) -> Result<()> {
     Ok(())
 }
 
-fn run(source: String) -> Result<expression::Value> {
+fn run(source: String) -> Result<()> {
     let scan_results =
         scanner::Scanner::new(&source).collect::<std::result::Result<Vec<_>, _>>()?;
     let parse_results =
         parser::Parser::new(&scan_results).collect::<std::result::Result<Vec<_>, _>>()?;
 
-    let mut last_value = expression::Value::Nil;
-
-    for expression in parse_results {
-        last_value = expression.accept(&mut interpreter::Interpreter)?;
+    for statement in parse_results {
+        interpreter::Interpreter.execute(&statement)?;
     }
 
-    Ok(last_value)
+    Ok(())
 }
