@@ -99,11 +99,16 @@ impl<'a> Parser<'a> {
     }
 
     fn statement(&mut self) -> StatementParseResult {
-        if matches!(self.peek_lexeme(), Some(&Lexeme::Print)) {
-            self.advance();
-            self.print_statement()
-        } else {
-            self.expression_statement()
+        match self.peek_lexeme() {
+            Some(&Lexeme::Print) => {
+                self.advance();
+                self.print_statement()
+            }
+            Some(&Lexeme::LeftBrace) => {
+                self.advance();
+                self.block()
+            }
+            _ => self.expression_statement(),
         }
     }
 
@@ -115,6 +120,26 @@ impl<'a> Parser<'a> {
         )?;
 
         Ok(Statement::Print(Box::new(expression)))
+    }
+
+    fn block(&mut self) -> StatementParseResult {
+        let mut statements: Vec<Statement> = Vec::new();
+        loop {
+            match self.peek_lexeme() {
+                None => break,
+                Some(Lexeme::RightBrace) => break,
+                _ => {
+                    statements.push(self.declaration()?);
+                }
+            };
+        }
+
+        self.consume(
+            |l| l == &Lexeme::RightBrace,
+            "Expected '}' after block.".to_owned(),
+        )?;
+
+        Ok(Statement::Block(statements))
     }
 
     fn expression_statement(&mut self) -> StatementParseResult {

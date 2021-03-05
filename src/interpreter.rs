@@ -1,4 +1,4 @@
-use crate::environment::Environment;
+use crate::environment::{env_assign, env_define, env_get, env_new, Environment};
 use crate::errors::RuntimeError;
 use crate::expression::{Expression, ExpressionVisitor, Value};
 use crate::statement::{Statement, StatementVisitor};
@@ -11,10 +11,12 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
+    pub fn new_with_environment(environment: Environment) -> Self {
+        Self { environment }
+    }
+
     pub fn new() -> Self {
-        Self {
-            environment: Environment::new(),
-        }
+        Self::new_with_environment(env_new(None))
     }
 
     pub fn execute(&mut self, statement: &Statement) -> InterpreterResult {
@@ -30,7 +32,7 @@ impl ExpressionVisitor<InterpreterResult> for Interpreter {
     fn visit_assign(&mut self, name: &Token, value: &Expression) -> InterpreterResult {
         let expression_value = value.accept(self)?;
 
-        self.environment.assign(name, expression_value.clone())?;
+        env_assign(&self.environment, name, expression_value.clone())?;
 
         Ok(expression_value)
     }
@@ -107,11 +109,22 @@ impl ExpressionVisitor<InterpreterResult> for Interpreter {
     }
 
     fn visit_variable(&mut self, name: &Token) -> InterpreterResult {
-        self.environment.get(name)
+        env_get(&self.environment, name)
     }
 }
 
 impl StatementVisitor<InterpreterResult> for Interpreter {
+    fn visit_block(&mut self, statements: &Vec<Statement>) -> InterpreterResult {
+        let mut block_interpreter =
+            Interpreter::new_with_environment(env_new(Some(&self.environment)));
+
+        for s in statements {
+            s.accept(&mut block_interpreter)?;
+        }
+
+        return Ok(Value::Nil);
+    }
+
     fn visit_expression(&mut self, expression: &Expression) -> InterpreterResult {
         self.evaluate(expression)?;
 
@@ -134,7 +147,7 @@ impl StatementVisitor<InterpreterResult> for Interpreter {
             value = expression_value;
         }
 
-        self.environment.define(name, value);
+        env_define(&self.environment, name, value);
 
         return Ok(Value::Nil);
     }
@@ -428,7 +441,7 @@ mod tests {
         };
 
         assert_eq!(statement.accept(&mut interpreter), Ok(Value::Nil));
-        assert_eq!(interpreter.environment.get(&name), Ok(Value::Nil));
+        assert_eq!(env_get(&interpreter.environment, &name), Ok(Value::Nil));
     }
 
     #[test]
@@ -441,14 +454,17 @@ mod tests {
         };
 
         assert_eq!(statement.accept(&mut interpreter), Ok(Value::Nil));
-        assert_eq!(interpreter.environment.get(&name), Ok(Value::Number(5.0)));
+        assert_eq!(
+            env_get(&interpreter.environment, &name),
+            Ok(Value::Number(5.0))
+        );
     }
 
     #[test]
     fn it_handles_assignment_expressions() {
         let mut interpreter = Interpreter::new();
         let name = Token::new(Lexeme::Identifier("foo".to_owned()), 0);
-        interpreter.environment.define(&name, Value::Nil);
+        env_define(&interpreter.environment, &name, Value::Nil);
 
         let expression = Expression::Assign {
             name: name.clone(),
@@ -456,7 +472,10 @@ mod tests {
         };
 
         assert_eq!(expression.accept(&mut interpreter), Ok(Value::Number(5.0)));
-        assert_eq!(interpreter.environment.get(&name), Ok(Value::Number(5.0)));
+        assert_eq!(
+            env_get(&interpreter.environment, &name),
+            Ok(Value::Number(5.0))
+        );
     }
 
     #[test]
