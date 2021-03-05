@@ -9,11 +9,16 @@ use crate::token::{Lexeme, Token};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
+    InvalidAssignmentTarget { token: Token },
     UnexpectedToken { token: Token, message: String },
     UnexpectedEnd,
 }
 
 impl ParseError {
+    fn invalid_assignment_target(token: Token) -> Self {
+        Self::InvalidAssignmentTarget { token }
+    }
+
     fn unexpected_token(token: Token, message: String) -> Self {
         Self::UnexpectedToken { token, message }
     }
@@ -22,6 +27,13 @@ impl ParseError {
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::InvalidAssignmentTarget { token } => write!(
+                f,
+                "[line {}] at '{}' {}",
+                token.line,
+                token.to_string(),
+                "Invalid assignment target"
+            ),
             Self::UnexpectedToken { token, message } => write!(
                 f,
                 "[line {}] at '{}' {}",
@@ -116,7 +128,27 @@ impl<'a> Parser<'a> {
     }
 
     fn expression(&mut self) -> ExpressionParseResult {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> ExpressionParseResult {
+        let expr = self.equality()?;
+
+        if matches!(self.peek_lexeme(), Some(&Lexeme::Equal)) {
+            let equals = self.advance().unwrap();
+            let value = self.assignment()?;
+
+            if let Expression::Variable(name) = expr {
+                return Ok(Expression::Assign {
+                    name,
+                    value: Box::new(value),
+                });
+            }
+
+            return Err(ParseError::invalid_assignment_target(equals));
+        }
+
+        Ok(expr)
     }
 
     fn equality(&mut self) -> ExpressionParseResult {
@@ -548,7 +580,7 @@ mod tests {
     }
 
     #[test]
-    fn it_handles_variable_declarations_with_semicolons() {
+    fn it_handles_variable_declarations_without_semicolons() {
         let tokens = vec![
             Token::new(Lexeme::Var, 0),
             Token::new(Lexeme::Identifier("foo".to_owned()), 0),
@@ -562,6 +594,27 @@ mod tests {
                 token: Token::new(Lexeme::Eof, 0),
                 message: "Expected ';' after variable declaration.".to_owned()
             }))
+        );
+        assert_eq!(parser.next(), None);
+    }
+
+    #[test]
+    fn it_handles_assignment() {
+        let tokens = vec![
+            Token::new(Lexeme::Identifier("foo".to_owned()), 0),
+            Token::new(Lexeme::Equal, 0),
+            Token::new(Lexeme::Number(5.0), 0),
+            Token::new(Lexeme::Semicolon, 0),
+            Token::new(Lexeme::Eof, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        assert_eq!(
+            parser.next(),
+            Some(Ok(Statement::Expression(Box::new(Expression::Assign {
+                name: Token::new(Lexeme::Identifier("foo".to_owned()), 0),
+                value: Box::new(Expression::Literal(Value::Number(5.0)))
+            }))))
         );
         assert_eq!(parser.next(), None);
     }

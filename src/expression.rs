@@ -37,6 +37,10 @@ impl fmt::Display for Value {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
+  Assign {
+    name: Token,
+    value: Box<Expression>,
+  },
   Binary {
     left: Box<Expression>,
     operator: Token,
@@ -53,6 +57,10 @@ pub enum Expression {
 impl Expression {
   pub fn accept<T>(&self, visitor: &mut dyn ExpressionVisitor<T>) -> T {
     match *self {
+      Self::Assign {
+        ref name,
+        ref value,
+      } => visitor.visit_assign(name, value),
       Self::Binary {
         ref left,
         ref operator,
@@ -70,6 +78,7 @@ impl Expression {
 }
 
 pub trait ExpressionVisitor<T> {
+  fn visit_assign(&mut self, name: &Token, value: &Expression) -> T;
   fn visit_binary(&mut self, left: &Expression, operator: &Token, right: &Expression) -> T;
   fn visit_grouping(&mut self, expression: &Expression) -> T;
   fn visit_literal(&mut self, value: &Value) -> T;

@@ -27,6 +27,14 @@ impl Interpreter {
 }
 
 impl ExpressionVisitor<InterpreterResult> for Interpreter {
+    fn visit_assign(&mut self, name: &Token, value: &Expression) -> InterpreterResult {
+        let expression_value = value.accept(self)?;
+
+        self.environment.assign(name, expression_value.clone())?;
+
+        Ok(expression_value)
+    }
+
     fn visit_binary(
         &mut self,
         left: &Expression,
@@ -126,7 +134,7 @@ impl StatementVisitor<InterpreterResult> for Interpreter {
             value = expression_value;
         }
 
-        self.environment.define(name.identifier(), value);
+        self.environment.define(name, value);
 
         return Ok(Value::Nil);
     }
@@ -434,5 +442,33 @@ mod tests {
 
         assert_eq!(statement.accept(&mut interpreter), Ok(Value::Nil));
         assert_eq!(interpreter.environment.get(&name), Ok(Value::Number(5.0)));
+    }
+
+    #[test]
+    fn it_handles_assignment_expressions() {
+        let mut interpreter = Interpreter::new();
+        let name = Token::new(Lexeme::Identifier("foo".to_owned()), 0);
+        interpreter.environment.define(&name, Value::Nil);
+
+        let expression = Expression::Assign {
+            name: name.clone(),
+            value: Box::new(Expression::Literal(Value::Number(5.0))),
+        };
+
+        assert_eq!(expression.accept(&mut interpreter), Ok(Value::Number(5.0)));
+        assert_eq!(interpreter.environment.get(&name), Ok(Value::Number(5.0)));
+    }
+
+    #[test]
+    fn it_handles_assign_expressions_with_undefined_variables() {
+        let expression = Expression::Assign {
+            name: Token::new(Lexeme::Identifier("foo".to_owned()), 0),
+            value: Box::new(Expression::Literal(Value::Number(5.0))),
+        };
+
+        assert_eq!(
+            expression.accept(&mut Interpreter::new()),
+            Err(RuntimeError::new(0, "Undefined variable 'foo'.".to_owned()))
+        );
     }
 }

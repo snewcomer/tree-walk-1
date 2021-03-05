@@ -15,8 +15,22 @@ impl Environment {
     }
   }
 
-  pub fn define(&mut self, name: String, value: Value) {
-    self.values.insert(name, value);
+  pub fn define(&mut self, name: &Token, value: Value) {
+    self.values.insert(name.identifier(), value);
+  }
+
+  pub fn assign(&mut self, name: &Token, value: Value) -> Result<(), RuntimeError> {
+    let identifier = name.identifier();
+
+    if !self.values.contains_key(&identifier) {
+      return Err(RuntimeError::from_token(
+        name,
+        format!("Undefined variable '{}'.", identifier),
+      ));
+    }
+
+    self.values.insert(identifier, value);
+    Ok(())
   }
 
   pub fn get(&self, name: &Token) -> Result<Value, RuntimeError> {

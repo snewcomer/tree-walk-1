@@ -18,6 +18,10 @@ impl AstPrinter {
 }
 
 impl ExpressionVisitor<String> for AstPrinter {
+    fn visit_assign(&mut self, name: &Token, value: &Expression) -> String {
+        format!("(= {} {})", name.identifier(), value.accept(self))
+    }
+
     fn visit_binary(&mut self, left: &Expression, operator: &Token, right: &Expression) -> String {
         self.parenthesize(operator.to_string(), &[left, right])
     }
@@ -33,6 +37,7 @@ impl ExpressionVisitor<String> for AstPrinter {
     fn visit_unary(&mut self, operator: &Token, expression: &Expression) -> String {
         self.parenthesize(operator.to_string(), &[expression])
     }
+
     fn visit_variable(&mut self, name: &Token) -> String {
         name.identifier()
     }
