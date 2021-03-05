@@ -1,38 +1,22 @@
-use std::error;
-use std::fmt;
-
+use crate::environment::Environment;
+use crate::errors::RuntimeError;
 use crate::expression::{Expression, ExpressionVisitor, Value};
 use crate::statement::{Statement, StatementVisitor};
 use crate::token::{Lexeme, Token};
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct RuntimeError {
-    line: u64,
-    message: String,
-}
-
-impl RuntimeError {
-    fn new(token: &Token, message: String) -> Self {
-        Self {
-            line: token.line,
-            message,
-        }
-    }
-}
-
-impl fmt::Display for RuntimeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} [line: {}]", self.message, self.line)
-    }
-}
-
-impl error::Error for RuntimeError {}
-
 type InterpreterResult = Result<Value, RuntimeError>;
 
-pub struct Interpreter;
+pub struct Interpreter {
+    environment: Environment,
+}
 
 impl Interpreter {
+    pub fn new() -> Self {
+        Self {
+            environment: Environment::new(),
+        }
+    }
+
     pub fn execute(&mut self, statement: &Statement) -> InterpreterResult {
         statement.accept(self)
     }
@@ -78,12 +62,12 @@ impl ExpressionVisitor<InterpreterResult> for Interpreter {
                 [Value::String(left_string), Value::String(ref right_string)] => {
                     Ok(Value::String(left_string + right_string))
                 }
-                _ => Err(RuntimeError::new(
+                _ => Err(RuntimeError::from_token(
                     operator,
                     "Operands must be two numbers or two strings.".to_owned(),
                 )),
             },
-            _ => Err(RuntimeError::new(
+            _ => Err(RuntimeError::from_token(
                 operator,
                 "Invalid binary operator.".to_owned(),
             )),
@@ -107,11 +91,15 @@ impl ExpressionVisitor<InterpreterResult> for Interpreter {
                 Ok(Value::Number(-numeric_operand))
             }
             Lexeme::Bang => Ok(Value::Bool(!operand.is_truthy())),
-            _ => Err(RuntimeError::new(
+            _ => Err(RuntimeError::from_token(
                 operator,
                 "Invalid unary operator.".to_owned(),
             )),
         }
+    }
+
+    fn visit_variable(&mut self, name: &Token) -> InterpreterResult {
+        self.environment.get(name)
     }
 }
 
@@ -129,12 +117,25 @@ impl StatementVisitor<InterpreterResult> for Interpreter {
 
         return Ok(Value::Nil);
     }
+
+    fn visit_var(&mut self, name: &Token, initializer: Option<&Expression>) -> InterpreterResult {
+        let mut value = Value::Nil;
+
+        if let Some(expression) = initializer {
+            let expression_value = self.evaluate(&expression)?;
+            value = expression_value;
+        }
+
+        self.environment.define(name.identifier(), value);
+
+        return Ok(Value::Nil);
+    }
 }
 
 fn check_number_operand(operator: &Token, operand: Value) -> Result<f64, RuntimeError> {
     match operand {
         Value::Number(n) => Ok(n),
-        _ => Err(RuntimeError::new(
+        _ => Err(RuntimeError::from_token(
             operator,
             "Operand must be a number.".to_owned(),
         )),
@@ -152,7 +153,7 @@ mod tests {
         let expression = Expression::Literal(Value::String("string literal".to_owned()));
 
         assert_eq!(
-            expression.accept(&mut Interpreter),
+            expression.accept(&mut Interpreter::new()),
             Ok(Value::String("string literal".to_owned()))
         );
     }
@@ -161,28 +162,37 @@ mod tests {
     fn it_handles_number_literal_expressions() {
         let expression = Expression::Literal(Value::Number(12.0));
 
-        assert_eq!(expression.accept(&mut Interpreter), Ok(Value::Number(12.0)));
+        assert_eq!(
+            expression.accept(&mut Interpreter::new()),
+            Ok(Value::Number(12.0))
+        );
     }
 
     #[test]
     fn it_handles_true_boolean_literal_expressions() {
         let expression = Expression::Literal(Value::Bool(true));
 
-        assert_eq!(expression.accept(&mut Interpreter), Ok(Value::Bool(true)));
+        assert_eq!(
+            expression.accept(&mut Interpreter::new()),
+            Ok(Value::Bool(true))
+        );
     }
 
     #[test]
     fn it_handles_false_boolean_literal_expressions() {
         let expression = Expression::Literal(Value::Bool(false));
 
-        assert_eq!(expression.accept(&mut Interpreter), Ok(Value::Bool(false)));
+        assert_eq!(
+            expression.accept(&mut Interpreter::new()),
+            Ok(Value::Bool(false))
+        );
     }
 
     #[test]
     fn it_handles_nil_literal_expressions() {
         let expression = Expression::Literal(Value::Nil);
 
-        assert_eq!(expression.accept(&mut Interpreter), Ok(Value::Nil));
+        assert_eq!(expression.accept(&mut Interpreter::new()), Ok(Value::Nil));
     }
 
     #[test]
@@ -193,7 +203,7 @@ mod tests {
         };
 
         assert_eq!(
-            expression.accept(&mut Interpreter),
+            expression.accept(&mut Interpreter::new()),
             Ok(Value::Number(-12.0))
         );
     }
@@ -206,11 +216,8 @@ mod tests {
         };
 
         assert_eq!(
-            expression.accept(&mut Interpreter),
-            Err(RuntimeError {
-                line: 0,
-                message: "Operand must be a number.".to_owned()
-            })
+            expression.accept(&mut Interpreter::new()),
+            Err(RuntimeError::new(0, "Operand must be a number.".to_owned()))
         );
     }
 
@@ -222,11 +229,8 @@ mod tests {
         };
 
         assert_eq!(
-            expression.accept(&mut Interpreter),
-            Err(RuntimeError {
-                line: 0,
-                message: "Invalid unary operator.".to_owned()
-            })
+            expression.accept(&mut Interpreter::new()),
+            Err(RuntimeError::new(0, "Invalid unary operator.".to_owned()))
         );
     }
 
@@ -237,7 +241,10 @@ mod tests {
             expression: Box::new(Expression::Literal(Value::Nil)),
         };
 
-        assert_eq!(expression.accept(&mut Interpreter), Ok(Value::Bool(true)));
+        assert_eq!(
+            expression.accept(&mut Interpreter::new()),
+            Ok(Value::Bool(true))
+        );
     }
 
     #[test]
@@ -247,7 +254,10 @@ mod tests {
             expression: Box::new(Expression::Literal(Value::Bool(false))),
         };
 
-        assert_eq!(expression.accept(&mut Interpreter), Ok(Value::Bool(true)));
+        assert_eq!(
+            expression.accept(&mut Interpreter::new()),
+            Ok(Value::Bool(true))
+        );
     }
 
     #[test]
@@ -257,7 +267,10 @@ mod tests {
             expression: Box::new(Expression::Literal(Value::Bool(true))),
         };
 
-        assert_eq!(expression.accept(&mut Interpreter), Ok(Value::Bool(false)));
+        assert_eq!(
+            expression.accept(&mut Interpreter::new()),
+            Ok(Value::Bool(false))
+        );
     }
 
     #[test]
@@ -267,7 +280,10 @@ mod tests {
             expression: Box::new(Expression::Literal(Value::Number(12.0))),
         };
 
-        assert_eq!(expression.accept(&mut Interpreter), Ok(Value::Bool(false)));
+        assert_eq!(
+            expression.accept(&mut Interpreter::new()),
+            Ok(Value::Bool(false))
+        );
     }
 
     #[test]
@@ -277,7 +293,10 @@ mod tests {
             expression: Box::new(Expression::Literal(Value::String("abc".to_owned()))),
         };
 
-        assert_eq!(expression.accept(&mut Interpreter), Ok(Value::Bool(false)));
+        assert_eq!(
+            expression.accept(&mut Interpreter::new()),
+            Ok(Value::Bool(false))
+        );
     }
 
     #[test]
@@ -289,7 +308,7 @@ mod tests {
         };
 
         assert_eq!(
-            expression.accept(&mut Interpreter),
+            expression.accept(&mut Interpreter::new()),
             Ok(Value::Number(-10.0))
         );
     }
@@ -302,7 +321,10 @@ mod tests {
             right: Box::new(Expression::Literal(Value::Number(12.0))),
         };
 
-        assert_eq!(expression.accept(&mut Interpreter), Ok(Value::Number(14.0)));
+        assert_eq!(
+            expression.accept(&mut Interpreter::new()),
+            Ok(Value::Number(14.0))
+        );
     }
 
     #[test]
@@ -314,7 +336,7 @@ mod tests {
         };
 
         assert_eq!(
-            expression.accept(&mut Interpreter),
+            expression.accept(&mut Interpreter::new()),
             Ok(Value::String("abcd".to_owned()))
         );
     }
@@ -328,11 +350,11 @@ mod tests {
         };
 
         assert_eq!(
-            expression.accept(&mut Interpreter),
-            Err(RuntimeError {
-                line: 0,
-                message: "Operands must be two numbers or two strings.".to_owned()
-            })
+            expression.accept(&mut Interpreter::new()),
+            Err(RuntimeError::new(
+                0,
+                "Operands must be two numbers or two strings.".to_owned()
+            ))
         );
     }
 
@@ -344,7 +366,10 @@ mod tests {
             right: Box::new(Expression::Literal(Value::Number(12.0))),
         };
 
-        assert_eq!(expression.accept(&mut Interpreter), Ok(Value::Number(24.0)));
+        assert_eq!(
+            expression.accept(&mut Interpreter::new()),
+            Ok(Value::Number(24.0))
+        );
     }
 
     #[test]
@@ -355,7 +380,10 @@ mod tests {
             right: Box::new(Expression::Literal(Value::Number(2.0))),
         };
 
-        assert_eq!(expression.accept(&mut Interpreter), Ok(Value::Number(6.0)));
+        assert_eq!(
+            expression.accept(&mut Interpreter::new()),
+            Ok(Value::Number(6.0))
+        );
     }
 
     #[test]
@@ -367,11 +395,8 @@ mod tests {
         };
 
         assert_eq!(
-            expression.accept(&mut Interpreter),
-            Err(RuntimeError {
-                line: 0,
-                message: "Operand must be a number.".to_owned()
-            })
+            expression.accept(&mut Interpreter::new()),
+            Err(RuntimeError::new(0, "Operand must be a number.".to_owned()))
         );
     }
 
@@ -379,6 +404,35 @@ mod tests {
     fn it_handles_grouping_expressions() {
         let expression = Expression::Grouping(Box::new(Expression::Literal(Value::Number(2.0))));
 
-        assert_eq!(expression.accept(&mut Interpreter), Ok(Value::Number(2.0)));
+        assert_eq!(
+            expression.accept(&mut Interpreter::new()),
+            Ok(Value::Number(2.0))
+        );
+    }
+
+    #[test]
+    fn it_handles_variable_statements() {
+        let mut interpreter = Interpreter::new();
+        let name = Token::new(Lexeme::Identifier("foo".to_owned()), 0);
+        let statement = Statement::Var {
+            name: name.clone(),
+            initializer: None,
+        };
+
+        assert_eq!(statement.accept(&mut interpreter), Ok(Value::Nil));
+        assert_eq!(interpreter.environment.get(&name), Ok(Value::Nil));
+    }
+
+    #[test]
+    fn it_handles_variable_statements_with_initializers() {
+        let mut interpreter = Interpreter::new();
+        let name = Token::new(Lexeme::Identifier("foo".to_owned()), 0);
+        let statement = Statement::Var {
+            name: name.clone(),
+            initializer: Some(Box::new(Expression::Literal(Value::Number(5.0)))),
+        };
+
+        assert_eq!(statement.accept(&mut interpreter), Ok(Value::Nil));
+        assert_eq!(interpreter.environment.get(&name), Ok(Value::Number(5.0)));
     }
 }

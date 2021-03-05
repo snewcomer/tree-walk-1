@@ -1,16 +1,25 @@
 use crate::expression::Expression;
+use crate::token::Token;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Statement {
     Expression(Box<Expression>),
     Print(Box<Expression>),
+    Var {
+        name: Token,
+        initializer: Option<Box<Expression>>,
+    },
 }
 
 impl Statement {
     pub fn accept<T>(&self, visitor: &mut dyn StatementVisitor<T>) -> T {
-        match *self {
-            Self::Expression(ref e) => visitor.visit_expression(e),
-            Self::Print(ref e) => visitor.visit_print(e),
+        match &self {
+            &Self::Expression(ref e) => visitor.visit_expression(e),
+            &Self::Print(ref e) => visitor.visit_print(e),
+            &Self::Var {
+                ref name,
+                initializer,
+            } => visitor.visit_var(name, initializer.as_deref()),
         }
     }
 }
@@ -18,4 +27,5 @@ impl Statement {
 pub trait StatementVisitor<T> {
     fn visit_expression(&mut self, expression: &Expression) -> T;
     fn visit_print(&mut self, expression: &Expression) -> T;
+    fn visit_var(&mut self, name: &Token, initializer: Option<&Expression>) -> T;
 }

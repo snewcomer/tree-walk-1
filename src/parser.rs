@@ -52,6 +52,40 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn declaration(&mut self) -> StatementParseResult {
+        if matches!(self.peek_lexeme(), Some(&Lexeme::Var)) {
+            self.advance();
+            self.var_declaration()
+        } else {
+            self.statement()
+        }
+    }
+
+    fn var_declaration(&mut self) -> StatementParseResult {
+        let name = self.consume(
+            |l| match l {
+                &Lexeme::Identifier(_) => true,
+                _ => false,
+            },
+            "Expected variable name.".to_owned(),
+        )?;
+
+        let mut initializer: Option<Box<Expression>> = None;
+
+        if matches!(self.peek_lexeme(), Some(&Lexeme::Equal)) {
+            self.advance();
+            let expression = self.expression()?;
+            initializer = Some(Box::new(expression));
+        }
+
+        self.consume(
+            |l| l == &Lexeme::Semicolon,
+            "Expected ';' after variable declaration.".to_owned(),
+        )?;
+
+        Ok(Statement::Var { name, initializer })
+    }
+
     fn statement(&mut self) -> StatementParseResult {
         if matches!(self.peek_lexeme(), Some(&Lexeme::Print)) {
             self.advance();
@@ -207,6 +241,14 @@ impl<'a> Parser<'a> {
                 lexeme: Lexeme::String(string),
                 ..
             }) => Ok(Expression::Literal(Value::String(string))),
+            Some(
+                token
+                @
+                Token {
+                    lexeme: Lexeme::Identifier(_),
+                    ..
+                },
+            ) => Ok(Expression::Variable(token)),
             Some(Token {
                 lexeme: Lexeme::LeftParen,
                 ..
@@ -234,15 +276,14 @@ impl<'a> Parser<'a> {
         self.tokens.peek().map(|t| &t.lexeme)
     }
 
-    fn consume<P>(&mut self, predicate: P, error_message: String) -> Result<(), ParseError>
+    fn consume<P>(&mut self, predicate: P, error_message: String) -> Result<Token, ParseError>
     where
         P: Fn(&Lexeme) -> bool,
     {
-        match self.tokens.peek() {
+        let result = match self.tokens.peek() {
             Some(token) => {
                 if predicate(&token.lexeme) {
-                    self.advance();
-                    Ok(())
+                    Ok((*token).clone())
                 } else {
                     Err(ParseError::unexpected_token(
                         (*token).clone(),
@@ -251,7 +292,13 @@ impl<'a> Parser<'a> {
                 }
             }
             None => Err(ParseError::UnexpectedEnd),
+        };
+
+        if result.is_ok() {
+            self.advance();
         }
+
+        result
     }
 }
 
@@ -261,7 +308,7 @@ impl<'a> Iterator for Parser<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         match self.peek_lexeme() {
             Some(&Lexeme::Eof) => None,
-            _ => Some(self.statement()),
+            _ => Some(self.declaration()),
         }
     }
 }
@@ -438,6 +485,82 @@ mod tests {
             Some(Err(ParseError::UnexpectedToken {
                 token: Token::new(Lexeme::Eof, 0),
                 message: "Expected ')' after expression.".to_owned()
+            }))
+        );
+        assert_eq!(parser.next(), None);
+    }
+
+    #[test]
+    fn it_handles_variable_declarations() {
+        let tokens = vec![
+            Token::new(Lexeme::Var, 0),
+            Token::new(Lexeme::Identifier("foo".to_owned()), 0),
+            Token::new(Lexeme::Semicolon, 0),
+            Token::new(Lexeme::Eof, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        assert_eq!(
+            parser.next(),
+            Some(Ok(Statement::Var {
+                name: Token::new(Lexeme::Identifier("foo".to_owned()), 0),
+                initializer: None
+            }))
+        );
+        assert_eq!(parser.next(), None);
+    }
+
+    #[test]
+    fn it_handles_variable_declarations_with_initializers() {
+        let tokens = vec![
+            Token::new(Lexeme::Var, 0),
+            Token::new(Lexeme::Identifier("foo".to_owned()), 0),
+            Token::new(Lexeme::Equal, 0),
+            Token::new(Lexeme::Number(5.0), 0),
+            Token::new(Lexeme::Semicolon, 0),
+            Token::new(Lexeme::Eof, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        assert_eq!(
+            parser.next(),
+            Some(Ok(Statement::Var {
+                name: Token::new(Lexeme::Identifier("foo".to_owned()), 0),
+                initializer: Some(Box::new(Expression::Literal(Value::Number(5.0))))
+            }))
+        );
+        assert_eq!(parser.next(), None);
+    }
+
+    #[test]
+    fn it_handles_incomplete_variable_declarations() {
+        let tokens = vec![Token::new(Lexeme::Var, 0), Token::new(Lexeme::Eof, 0)];
+        let mut parser = Parser::new(&tokens);
+
+        assert_eq!(
+            parser.next(),
+            Some(Err(ParseError::UnexpectedToken {
+                token: Token::new(Lexeme::Eof, 0),
+                message: "Expected variable name.".to_owned()
+            }))
+        );
+        assert_eq!(parser.next(), None);
+    }
+
+    #[test]
+    fn it_handles_variable_declarations_with_semicolons() {
+        let tokens = vec![
+            Token::new(Lexeme::Var, 0),
+            Token::new(Lexeme::Identifier("foo".to_owned()), 0),
+            Token::new(Lexeme::Eof, 0),
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        assert_eq!(
+            parser.next(),
+            Some(Err(ParseError::UnexpectedToken {
+                token: Token::new(Lexeme::Eof, 0),
+                message: "Expected ';' after variable declaration.".to_owned()
             }))
         );
         assert_eq!(parser.next(), None);
