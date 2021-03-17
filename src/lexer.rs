@@ -520,4 +520,30 @@ andd
         assert_eq!(sc.next().unwrap(), Token::new(LexemeKind::UNEXPECTED("·".to_string()), 0));
         assert_eq!(sc.next(), None);
     }
+
+    #[test]
+    fn it_handles_keywords() {
+        let source = "print(\"foo\")";
+        let mut sc = Scanner::new(source.to_owned());
+        assert_eq!(sc.next().unwrap(), Token::new(LexemeKind::PRINT, 0));
+        assert_eq!(sc.next().unwrap(), Token::new(LexemeKind::LeftParen, 0));
+        assert_eq!(sc.next().unwrap(), Token::new(LexemeKind::STRING("foo".to_string()), 0));
+        assert_eq!(sc.next().unwrap(), Token::new(LexemeKind::RightParen, 0));
+        assert_eq!(sc.next(), None);
+
+        let source = "print(1)";
+        let mut sc = Scanner::new(source.to_owned());
+        assert_eq!(sc.next().unwrap(), Token::new(LexemeKind::PRINT, 0));
+        assert_eq!(sc.next().unwrap(), Token::new(LexemeKind::LeftParen, 0));
+        assert_eq!(sc.next().unwrap(), Token::new(LexemeKind::NUMBER(1.0), 0));
+        assert_eq!(sc.next().unwrap(), Token::new(LexemeKind::RightParen, 0));
+        assert_eq!(sc.next(), None);
+
+        let source = "var foo";
+        let mut sc = Scanner::new(source.to_owned());
+        assert_eq!(sc.next().unwrap(), Token::new(LexemeKind::VAR, 0));
+        assert_eq!(sc.next().unwrap(), Token::new(LexemeKind::Whitespace, 0));
+        assert_eq!(sc.next().unwrap(), Token::new(LexemeKind::IDENTIFIER("foo".to_string()), 0));
+        assert_eq!(sc.next(), None);
+    }
 }

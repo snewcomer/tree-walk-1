@@ -55,13 +55,10 @@ fn run(source: String) -> TWResult<()> {
     let tokens = Scanner::new(source).collect();
 
     let mut parser = Parser::new(tokens); // vec![token1, token2]
-    let ast = parser.parse().unwrap();
-
-    println!("{:?}", parser::debug_tree(&ast));
-
-    let result = Interpreter.evaluate(&ast);
-
-    eprintln!("{:?}", result.unwrap());
+    let stmts = parser.parse();
+    let mut interp = Interpreter::new();
+    let res = interp.start(stmts);
+    eprintln!("{:?}", res);
 
     Ok(())
 }

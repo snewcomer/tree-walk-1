@@ -1,21 +1,24 @@
 pub(crate) mod expression;
+pub(crate) mod statement;
 
 use crate::lexer::{LexemeKind, Token};
 pub use expression::{Expr, Value};
+pub use statement::Stmt;
 
+#[derive(Debug)]
 pub(crate) struct Parser {
     tokens: Vec<Token>,
-    cursor: usize,
+    pub cursor: usize,
 }
 
-pub(crate) fn debug_tree(ast: &Expr) -> String {
+pub(crate) fn debug_tree(ast: &Stmt) -> String {
     let mut st = String::new();
     st.push_str("(");
-    if let Expr::Binary {
+    if let Stmt::Expr(Expr::Binary {
         left,
         operator,
         right,
-    } = ast
+    }) = ast
     {
         let op = operator.to_string();
         st.push_str(&op);
@@ -28,7 +31,7 @@ pub(crate) fn debug_tree(ast: &Expr) -> String {
         let r = &(*right).debug();
         st.push_str(r);
     } else {
-        println!("Not an expression");
+        // println!("Not an expression");
     }
 
     st.push_str(")");
@@ -40,12 +43,26 @@ impl Parser {
         Self { tokens, cursor: 0 }
     }
 
-    pub(crate) fn parse(&mut self) -> Option<Expr> {
-        self.expression()
+    // ultimately, we execute a list of statements
+    pub(crate) fn parse(&mut self) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+        while !self.at_end() {
+            let res = statement::parse(self);
+
+            self.eat_whitespace();
+
+            stmts.push(res.unwrap());
+        }
+
+        stmts
     }
 
-    fn at_end(&self) -> bool {
-        self.peek_kind() == Some(LexemeKind::EOF)
+    pub fn at_end(&self) -> bool {
+        self.peek_kind() == Some(LexemeKind::EOF) || self.peek_kind() == None
+    }
+
+    fn last_token(&self) -> Option<&Token> {
+        self.tokens.get(self.cursor - 1)
     }
 
     fn peek(&self) -> Option<&Token> {
@@ -57,12 +74,17 @@ impl Parser {
             .and_then(|Token { lexeme, .. }| Some(lexeme.clone()))
     }
 
-    fn expect(&mut self, kind: LexemeKind) {
+    fn expect(&mut self, kind: LexemeKind) -> Result<(), Option<Expr>> {
         if self.at(kind) {
             self.cursor += 1;
-        } else {
-            todo!();
+            return Ok(());
+        } else if !self.at_end() {
+            let token = self.peek().unwrap();
+            return Err(self.error(token.line, &format!("Unexpected token: {}", token.lexeme)));
         }
+
+        // no token
+        Err(self.error(0, &format!("Unexpected token")))
     }
 
     fn at(&self, kind: LexemeKind) -> bool {
@@ -73,7 +95,7 @@ impl Parser {
     }
 
     fn eat_whitespace(&mut self) {
-        if self.peek_kind() == Some(LexemeKind::Whitespace) {
+        while let Some(LexemeKind::Whitespace) = self.peek_kind() {
             self.cursor += 1;
         }
     }
@@ -88,7 +110,45 @@ impl Parser {
     }
 
     fn expression(&mut self) -> Option<Expr> {
-        self.equality()
+        // self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Option<Expr> {
+        let mut expr = self.equality();
+
+        self.eat_whitespace();
+
+        while self.is_equal(vec![LexemeKind::Equal]) {
+            self.cursor += 1; // EQUAL
+
+            self.eat_whitespace();
+
+            if let Some(Expr::Variable(st)) = expr {
+                // this came from fn primary()
+                // recursive call in case a = b = 1;
+                let right = self.assignment();
+                match right {
+                    Some(r) => {
+                        expr = Some(Expr::Assign {
+                            name: st,
+                            expr: Box::new(r),
+                        });
+
+                        let _ = self.expect(LexemeKind::Semicolon);
+                    }
+                    None => {
+                        let last_token = self.last_token().unwrap();
+                        expr = self.error(last_token.line, "Unfinished right hand assignment expression");
+                    }
+                }
+            } else {
+                let last_token = self.last_token().unwrap();
+                expr = self.error(last_token.line, "Invalid left hand assignment expression");
+            }
+        }
+
+        expr
     }
 
     fn equality(&mut self) -> Option<Expr> {
@@ -208,8 +268,9 @@ impl Parser {
             res
         } else {
             let res = self.primary();
-            let token = self.peek();
+            let token = self.tokens.get(self.cursor);
             if let Some(Token { lexeme: LexemeKind::UNEXPECTED(l), line }) = token {
+                self.cursor += 1;
                 self.error(*line, &format!("Parsing error at {}", l))
             } else {
                 res
@@ -218,6 +279,11 @@ impl Parser {
     }
 
     fn primary(&mut self) -> Option<Expr> {
+        // first check if we have something to look at
+        if self.peek_kind() == None {
+            return None;
+        }
+
         let token = self.tokens.get(self.cursor).unwrap();
         match &token.lexeme {
             LexemeKind::FALSE => {
@@ -236,17 +302,38 @@ impl Parser {
                 self.cursor += 1;
                 Some(Expr::Literal(Value::NUMBER(*num)))
             }
+            LexemeKind::IDENTIFIER(st) => {
+                self.cursor += 1;
+                // this will be used by the fn assignment
+                Some(Expr::Variable(st.to_string()))
+            }
             LexemeKind::LeftParen => {
                 self.cursor += 1;
+
+                // empty print stmt - print()
+                if self.peek_kind() == Some(LexemeKind::RightParen) {
+                    return Some(Expr::Grouping(
+                        Box::new(Expr::Literal(Value::STRING("".to_string()))),
+                    ));
+                }
+
                 let expr = self.expression();
 
-                self.expect(LexemeKind::RightParen);
-
-                Some(Expr::Grouping(
-                    Box::new(expr.unwrap()),
-                ))
+                match expr {
+                    None => {
+                        // fail gracefully if we haven't closed out the RightParen
+                        let last_token = self.last_token().unwrap();
+                        self.error(last_token.line, &format!("~~Parsing error at {}", last_token.lexeme))
+                    }
+                    ex => Some(Expr::Grouping(
+                        Box::new(ex.unwrap())
+                    )),
+                }
             }
-            m => self.error(token.line, &format!("Parsing error at {}", m)),
+            m => {
+                self.cursor += 1;
+                self.error(token.line, &format!("Parsing error at {}", m))
+            }
         }
     }
 }
@@ -259,123 +346,143 @@ mod test {
     #[test]
     fn it_handles_binary() {
         let tokens = Scanner::new("1+1".to_owned()).collect();
-        let ast = Parser::new(tokens).parse().unwrap();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
         assert_eq!(
             ast,
-            Expr::Binary {
+            Stmt::Expr(Expr::Binary {
                 left: Box::new(Expr::Literal(Value::NUMBER(1.0))),
                 operator: LexemeKind::Plus,
                 right: Box::new(Expr::Literal(Value::NUMBER(1.0))),
-            }
+            })
         );
 
         let tokens = Scanner::new("1 == 1".to_owned()).collect();
-        let ast = Parser::new(tokens).parse().unwrap();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
         assert_eq!(
             ast,
-            Expr::Binary {
+            Stmt::Expr(Expr::Binary {
                 left: Box::new(Expr::Literal(Value::NUMBER(1.0))),
                 operator: LexemeKind::EqualEqual,
                 right: Box::new(Expr::Literal(Value::NUMBER(1.0))),
-            }
+            })
         );
     }
 
     #[test]
     fn it_handles_co() {
         let tokens = Scanner::new("1 >= 2".to_owned()).collect();
-        let ast = Parser::new(tokens).parse().unwrap();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
         assert_eq!(
             ast,
-            Expr::Binary {
+            Stmt::Expr(Expr::Binary {
                 left: Box::new(Expr::Literal(Value::NUMBER(1.0))),
                 operator: LexemeKind::GreaterEqual,
                 right: Box::new(Expr::Literal(Value::NUMBER(2.0))),
-            }
+            })
         );
 
         let tokens = Scanner::new("1 <= 2".to_owned()).collect();
-        let ast = Parser::new(tokens).parse().unwrap();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
         assert_eq!(
             ast,
-            Expr::Binary {
+            Stmt::Expr(Expr::Binary {
                 left: Box::new(Expr::Literal(Value::NUMBER(1.0))),
                 operator: LexemeKind::LessEqual,
                 right: Box::new(Expr::Literal(Value::NUMBER(2.0))),
-            }
+            })
         );
     }
 
     #[test]
     fn it_handles_unary() {
         let tokens = Scanner::new("-1".to_owned()).collect();
-        let ast = Parser::new(tokens).parse().unwrap();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
         assert_eq!(
             ast,
-            Expr::Unary {
+            Stmt::Expr(Expr::Unary {
                 operator: LexemeKind::Minus,
                 right: Box::new(Expr::Literal(Value::NUMBER(1.0))),
-            }
+            })
         );
 
         let tokens = Scanner::new("+1".to_owned()).collect();
-        let ast = Parser::new(tokens).parse().unwrap();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
         assert_eq!(
             ast,
-            Expr::Unary {
+            Stmt::Expr(Expr::Unary {
                 operator: LexemeKind::Plus,
                 right: Box::new(Expr::Literal(Value::NUMBER(1.0))),
-            }
+            })
         );
     }
 
     #[test]
     fn it_errors_keyword() {
         let tokens = Scanner::new("and".to_owned()).collect();
-        let ast = Parser::new(tokens).parse().unwrap();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
         assert_eq!(
             ast,
-            Expr::Error { line: 0, message: "Parsing error at AND".to_string() }
+            Stmt::Expr(Expr::Error { line: 0, message: "Parsing error at AND".to_string() })
         );
     }
 
     #[test]
     fn not_expression() {
         let tokens = Scanner::new("a".to_owned()).collect();
-        let ast = Parser::new(tokens).parse().unwrap();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
         assert_eq!(
             ast,
-            Expr::Error { line: 0, message: "Parsing error at IDENTIFIER(\"a\")".to_string() }
+            Stmt::Expr(Expr::Variable("a".to_string()))
         );
     }
 
     #[test]
     fn it_works_parenthesized_expression() {
         let tokens = Scanner::new("(1+1)".to_owned()).collect();
-        let ast = Parser::new(tokens).parse().unwrap();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
         assert_eq!(
             ast,
-            Expr::Grouping(
+            Stmt::Expr(Expr::Grouping(
                 Box::new(Expr::Binary {
                     left: Box::new(Expr::Literal(Value::NUMBER(1.0))),
                     operator: LexemeKind::Plus,
                     right: Box::new(Expr::Literal(Value::NUMBER(1.0))),
                 }),
-            )
+            ))
         );
     }
 
     #[test]
     fn it_works_plus_plus() {
         let tokens = Scanner::new("+1+1".to_owned()).collect();
-        let ast = Parser::new(tokens).parse().unwrap();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
         assert_eq!(
             ast,
-            Expr::Binary {
+            Stmt::Expr(Expr::Binary {
                 left: Box::new(Expr::Literal(Value::NUMBER(1.0))),
                 operator: LexemeKind::Plus,
                 right: Box::new(Expr::Literal(Value::NUMBER(1.0))),
-            }
+            })
+        );
+    }
+
+    #[test]
+    fn variables_semicolon() {
+        let tokens = Scanner::new("var a;".to_owned()).collect();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
+        assert_eq!(
+            ast,
+            Stmt::VariableDef { ident: "a".to_string(), expr: None}
+        );
+    }
+
+    #[test]
+    fn variables_no_semicolon() {
+        let tokens = Scanner::new("var a".to_owned()).collect();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
+        assert_eq!(
+            ast,
+            Stmt::VariableDef { ident: "a".to_string(), expr: None}
         );
     }
 }
