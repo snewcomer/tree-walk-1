@@ -14,6 +14,11 @@ pub enum Expr {
         right: Box<Expr>,
     },
     Literal(Value),
+    Logical {
+        left: Box<Expr>,
+        operator: LexemeKind,
+        right: Box<Expr>,
+    },
     Variable(String),
     Unary {
         operator: LexemeKind,
@@ -62,6 +67,9 @@ impl Expr {
             Expr::Binary { operator, left, right } => {
                 visitor.visit_binary(left, operator, right)
             }
+            Expr::Logical { operator, left, right } => {
+                visitor.visit_logical(left, operator, right)
+            }
             Expr::Unary { operator, right } => {
                 visitor.visit_unary(operator, right)
             }
@@ -97,6 +105,23 @@ impl Expr {
                 st
             },
             Expr::Binary { operator, left, right } => {
+                let mut st = String::new();
+                st.push_str("(");
+
+                let op = operator.to_string();
+                st.push_str(&op);
+                st.push_str(" ");
+
+                let l = &left.debug();
+                st.push_str(l);
+                st.push_str(" ");
+
+                let r = &right.debug();
+                st.push_str(r);
+
+                st
+            },
+            Expr::Logical { operator, left, right } => {
                 let mut st = String::new();
                 st.push_str("(");
 

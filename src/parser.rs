@@ -110,12 +110,12 @@ impl Parser {
     }
 
     fn expression(&mut self) -> Option<Expr> {
-        // self.equality()
+        // here we parse left to right. As we "eat" tokens, we traverse forward,
         self.assignment()
     }
 
     fn assignment(&mut self) -> Option<Expr> {
-        let mut expr = self.equality();
+        let mut expr = self.or();
 
         self.eat_whitespace();
 
@@ -146,6 +146,44 @@ impl Parser {
                 let last_token = self.last_token().unwrap();
                 expr = self.error(last_token.line, "Invalid left hand assignment expression");
             }
+        }
+
+        expr
+    }
+
+    fn or(&mut self) -> Option<Expr> {
+        let mut expr = self.and();
+
+        self.eat_whitespace();
+
+        while self.is_equal(vec![LexemeKind::OR]) {
+            let operator = self.peek_kind().unwrap();
+            self.cursor += 1;
+            let right = self.and();
+            expr = Some(Expr::Logical {
+                left: Box::new(expr.unwrap()),
+                operator,
+                right: Box::new(right.unwrap()),
+            });
+        }
+
+        expr
+    }
+
+    fn and(&mut self) -> Option<Expr> {
+        let mut expr = self.equality();
+
+        self.eat_whitespace();
+
+        while self.is_equal(vec![LexemeKind::AND]) {
+            let operator = self.peek_kind().unwrap();
+            self.cursor += 1;
+            let right = self.equality();
+            expr = Some(Expr::Logical {
+                left: Box::new(expr.unwrap()),
+                operator,
+                right: Box::new(right.unwrap()),
+            });
         }
 
         expr
@@ -483,6 +521,53 @@ mod test {
         assert_eq!(
             ast,
             Stmt::VariableDef { ident: "a".to_string(), expr: None}
+        );
+    }
+
+    #[test]
+    fn assignment() {
+        let tokens = Scanner::new("a = 2;".to_owned()).collect();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
+        assert_eq!(
+            ast,
+            Stmt::Expr(Expr::Assign { name: "a".to_string(), expr: Box::new(Expr::Literal(Value::NUMBER(2.0))) })
+        );
+    }
+
+    #[test]
+    fn multiple_assignment() {
+        let tokens = Scanner::new("a = b = 2;".to_owned()).collect();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
+        assert_eq!(
+            ast,
+            Stmt::Expr(
+                Expr::Assign {
+                    name: "a".to_string(),
+                    expr: Box::new(
+                        Expr::Assign {
+                            name: "b".to_string(),
+                            expr: Box::new(Expr::Literal(Value::NUMBER(2.0)))
+                        }
+                    )
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn logical_and() {
+        let tokens = Scanner::new("a = 2 and 5;".to_owned()).collect();
+        let ast = Parser::new(tokens).parse().into_iter().nth(0).unwrap();
+        assert_eq!(
+            ast,
+            Stmt::Expr(Expr::Assign {
+                name: "a".to_string(),
+                expr: Box::new(Expr::Logical {
+                    left: Box::new(Expr::Literal(Value::NUMBER(2.0))),
+                    operator: LexemeKind::AND,
+                    right: Box::new(Expr::Literal(Value::NUMBER(5.0))),
+                })
+            })
         );
     }
 }

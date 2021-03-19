@@ -6,6 +6,15 @@ use crate::visitor::StatementVisitor;
 #[derive(Debug, PartialEq)]
 pub enum Stmt {
     Block(Box<Vec<Stmt>>),
+    If {
+        condition: Expr,
+        then_branch: Box<Stmt>,
+        else_branch: Box<Option<Stmt>>,
+    },
+    While {
+        condition: Expr,
+        body: Box<Stmt>,
+    },
     VariableDef {
         ident: String,
         expr: Option<Expr>,
@@ -23,6 +32,12 @@ impl Stmt {
         match self {
             Stmt::Block(stmts) => {
                 visitor.visit_block(stmts)
+            }
+            Stmt::If { condition, then_branch, else_branch } => {
+                visitor.visit_if(condition, then_branch, else_branch)
+            }
+            Stmt::While { condition, body } => {
+                visitor.visit_while(condition, body)
             }
             Stmt::VariableDef { ident, expr } => {
                 visitor.visit_variable_def(ident, expr)
@@ -47,6 +62,12 @@ pub(crate) fn parse(p: &mut Parser) -> Option<Stmt> {
         p.cursor += 1;
         // ultimately, this is what our program is made up of
         declaration_stmt(p)
+    } else if p.at(LexemeKind::IF) {
+        p.cursor += 1;
+        if_statement(p)
+    } else if p.at(LexemeKind::WHILE) {
+        p.cursor += 1;
+        while_statement(p)
     } else if p.at(LexemeKind::LeftBrace) {
         p.cursor += 1;
 
@@ -54,6 +75,42 @@ pub(crate) fn parse(p: &mut Parser) -> Option<Stmt> {
     } else {
         statement(p)
     }
+}
+
+fn if_statement(p: &mut Parser) -> Option<Stmt> {
+    p.eat_whitespace();
+
+    let _ = p.expect(LexemeKind::LeftParen);
+    p.eat_whitespace();
+    let condition = p.expression()?;
+    p.eat_whitespace();
+    let _ = p.expect(LexemeKind::RightParen);
+
+    let then_branch = parse(p).unwrap();
+    p.eat_whitespace();
+
+    let mut else_branch = None;
+    if p.at(LexemeKind::ELSE) {
+        p.cursor += 1;
+        p.eat_whitespace();
+        else_branch = parse(p);
+    }
+
+    Some(Stmt::If { condition, then_branch: Box::new(then_branch), else_branch: Box::new(else_branch) })
+}
+
+fn while_statement(p: &mut Parser) -> Option<Stmt> {
+    p.eat_whitespace();
+
+    let _ = p.expect(LexemeKind::LeftParen);
+    p.eat_whitespace();
+    let condition = p.expression()?;
+    p.eat_whitespace();
+    let _ = p.expect(LexemeKind::RightParen);
+
+    let body = parse(p);
+
+    Some(Stmt::While { condition, body: Box::new(body.unwrap()) })
 }
 
 fn block(p: &mut Parser) -> Option<Stmt> {
@@ -334,6 +391,99 @@ print(a);".to_owned()).collect();
                         ]
                     )
                 )
+            )
+        );
+    }
+
+    #[test]
+    fn it_works_if_stmt() {
+        let tokens = Scanner::new("if (true) {
+            var a = 2;
+            print(a);
+        }".to_owned()).collect();
+        let mut p = Parser::new(tokens);
+        let res = parse(&mut p);
+        assert_eq!(
+            res,
+            Some(
+                Stmt::If {
+                    condition: Expr::Literal(Value::BOOLEAN(true)),
+                    then_branch: Box::new(Stmt::Block(Box::new(vec![
+                        Stmt::VariableDef { ident: "a".to_string(), expr: Some(Expr::Literal(Value::NUMBER(2.0))) },
+                        Stmt::Print(Some(Expr::Variable("a".to_string()))),
+                    ]))),
+                    else_branch: Box::new(None),
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn it_works_if_inline_stmt() {
+        let tokens = Scanner::new("if (true) print(2);".to_owned()).collect();
+        let mut p = Parser::new(tokens);
+        let res = parse(&mut p);
+        assert_eq!(
+            res,
+            Some(
+                Stmt::If {
+                    condition: Expr::Literal(Value::BOOLEAN(true)),
+                    then_branch: Box::new(Stmt::Print(Some(Expr::Literal(Value::NUMBER(2.0))))),
+                    else_branch: Box::new(None),
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn it_works_if_else_stmt() {
+        let tokens = Scanner::new("
+if (true) {
+    var a = 2;
+    print(a);
+} else {
+    var b = 3;
+    print(b);
+}".to_owned()).collect();
+        let mut p = Parser::new(tokens);
+        let res = parse(&mut p);
+        assert_eq!(
+            res,
+            Some(
+                Stmt::If {
+                    condition: Expr::Literal(Value::BOOLEAN(true)),
+                    then_branch: Box::new(Stmt::Block(Box::new(vec![
+                        Stmt::VariableDef { ident: "a".to_string(), expr: Some(Expr::Literal(Value::NUMBER(2.0))) },
+                        Stmt::Print(Some(Expr::Variable("a".to_string()))),
+                    ]))),
+                    else_branch: Box::new(Some(Stmt::Block(Box::new(vec![
+                        Stmt::VariableDef { ident: "b".to_string(), expr: Some(Expr::Literal(Value::NUMBER(3.0))) },
+                        Stmt::Print(Some(Expr::Variable("b".to_string()))),
+                    ])))),
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn it_works_while_stmt() {
+        let tokens = Scanner::new("
+        while (true) {
+            var a = 2;
+            print(a);
+        }".to_owned()).collect();
+        let mut p = Parser::new(tokens);
+        let res = parse(&mut p);
+        assert_eq!(
+            res,
+            Some(
+                Stmt::While {
+                    condition: Expr::Literal(Value::BOOLEAN(true)),
+                    body: Box::new(Stmt::Block(Box::new(vec![
+                        Stmt::VariableDef { ident: "a".to_string(), expr: Some(Expr::Literal(Value::NUMBER(2.0))) },
+                        Stmt::Print(Some(Expr::Variable("a".to_string()))),
+                    ]))),
+                }
             )
         );
     }

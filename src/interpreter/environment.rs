@@ -5,10 +5,12 @@ use std::collections::HashMap;
 use crate::parser::Value;
 use super::RuntimeError;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Environment {
     pub variables: collections::HashMap<String, Value>,
     pub enclosing: Option<Rc<RefCell<Environment>>>, // pattern especially useful when a function will cannot borrow a field as mutable. Once something already has a reference, you can't then borrow as mutable
+    // place to mutate and read from enclosing.  But b/c cloned, the original Environment does not
+    // inherit values after mutation
 }
 
 impl Environment {
@@ -19,10 +21,11 @@ impl Environment {
         }
     }
 
-    pub fn new_with_scope(env: &Environment) -> Self {
+    pub fn new_with_scope(env: &Rc<RefCell<Environment>>) -> Self {
+        // create a new inner scope
         Self {
-            variables: env.variables.clone(),
-            enclosing: None,
+            variables: HashMap::new(), // empty b/c retrieve will look up enclosing chain for variables if need be
+            enclosing: Some(env.clone()),
         }
     }
 
@@ -32,6 +35,7 @@ impl Environment {
 
     pub fn assign(&mut self, name: String, value: Value) -> Result<(), RuntimeError> {
         if !self.variables.contains_key(&name) {
+            // if inner most scope self.variables does not contain variable, check outer for variable
             if let Some(ref encl) = self.enclosing {
                 // Rc<RefCell> - pointer with shared ownership with interior mutability
                 // need a ref b/c enclosing value does not implement the Copy trait
